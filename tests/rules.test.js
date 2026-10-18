@@ -1,4 +1,4 @@
-// Run with: npm run test:rules (starts the Firestore + Storage emulators; never touches production)
+// Run with: npm run test:rules (starts the Firestore emulator; never touches production)
 import { after, before, beforeEach, describe, test } from 'node:test'
 import { readFileSync } from 'node:fs'
 import {
@@ -7,11 +7,8 @@ import {
   initializeTestEnvironment,
 } from '@firebase/rules-unit-testing'
 import { deleteDoc, doc, getDoc, setDoc, updateDoc } from 'firebase/firestore'
-import { deleteObject, getBytes, ref, uploadBytes } from 'firebase/storage'
 
 const EXAM = 'grades/g/sections/s/subjects/sub/exams/e'
-const IMAGE = 'exams/g/s/sub/e/page.webp'
-const image = (size = 10) => new Uint8Array(size)
 
 let env
 
@@ -19,7 +16,6 @@ before(async () => {
   env = await initializeTestEnvironment({
     projectId: 'demo-azhar',
     firestore: { rules: readFileSync('firestore.rules', 'utf8') },
-    storage: { rules: readFileSync('storage.rules', 'utf8') },
   })
 })
 
@@ -27,13 +23,11 @@ after(() => env.cleanup())
 
 beforeEach(async () => {
   await env.clearFirestore()
-  await env.clearStorage()
   await env.withSecurityRulesDisabled(async (ctx) => {
     const db = ctx.firestore()
     await setDoc(doc(db, 'admins/admin'), {})
     await setDoc(doc(db, 'grades/g'), { name: 'صف' })
     await setDoc(doc(db, EXAM), { name: 'امتحان', images: [] })
-    await uploadBytes(ref(ctx.storage(), IMAGE), image(), { contentType: 'image/webp' })
   })
 })
 
@@ -82,35 +76,5 @@ describe('firestore', () => {
   test('other collections are closed', async () => {
     await assertFails(getDoc(doc(admin().firestore(), 'other/x')))
     await assertFails(setDoc(doc(admin().firestore(), 'other/x'), { name: 'x' }))
-  })
-})
-
-describe('storage', () => {
-  test('anyone can read exam images', async () => {
-    await assertSucceeds(getBytes(ref(anon().storage(), IMAGE)))
-  })
-
-  test('anonymous and non-admins cannot upload or delete', async () => {
-    for (const ctx of [anon(), student()]) {
-      const storage = ctx.storage()
-      await assertFails(uploadBytes(ref(storage, 'exams/g/s/sub/e/new.webp'), image(), { contentType: 'image/webp' }))
-      await assertFails(deleteObject(ref(storage, IMAGE)))
-    }
-  })
-
-  test('admin can upload and delete images', async () => {
-    const storage = admin().storage()
-    await assertSucceeds(uploadBytes(ref(storage, 'exams/g/s/sub/e/new.webp'), image(), { contentType: 'image/webp' }))
-    await assertSucceeds(deleteObject(ref(storage, IMAGE)))
-  })
-
-  test('admin uploads must be images under 5 MB', async () => {
-    const storage = admin().storage()
-    await assertFails(uploadBytes(ref(storage, 'exams/g/s/sub/e/a.pdf'), image(), { contentType: 'application/pdf' }))
-    await assertFails(uploadBytes(ref(storage, 'exams/g/s/sub/e/big.webp'), image(5 * 1024 * 1024), { contentType: 'image/webp' }))
-  })
-
-  test('paths outside exams/ are closed', async () => {
-    await assertFails(uploadBytes(ref(admin().storage(), 'other/x.webp'), image(), { contentType: 'image/webp' }))
   })
 })

@@ -64,6 +64,14 @@ The **exam** document adds:
 }
 ```
 
+> **Update 2026-10-18 — images moved to Cloudinary** (free plan; Firebase Storage would need Blaze).
+> Browser uploads go through an unsigned upload preset (`src/lib/cloudinary.js`) into
+> `azhar-exams/exams/{grade}/{section}/{subject}/{exam}/{id}`. Each `ExamImage` stores `publicId`,
+> `url` (`f_auto,q_auto`) and `thumbUrl` (`c_limit,w_480,f_auto,q_auto`) — thumbnails are Cloudinary
+> transformations, not separate uploads. Deleting from Cloudinary needs the API secret, so deletes in
+> the app only remove Firestore entries; files stay on Cloudinary until cleaned up outside the app.
+> Firebase Storage, `storage.rules` and its tests were removed. The Storage notes below are historical.
+
 ### 1.3 Why the images are stored this way
 
 - **The image files go in Firebase Storage, not Firestore.** A Firestore document is limited to 1 MiB, so it can't hold image data. Firestore keeps only each image's metadata and URL.
@@ -275,5 +283,5 @@ Deploy the rules with the Firebase CLI (`firebase init firestore storage`, then 
 
 1. **Should students see everything?** If some content is restricted (e.g. by subscription or school), reads need auth and per-grade rules.
 2. **Exam metadata:** is `year` + `term` enough, or are fields like exam type (final/monthly) or a model answer needed?
-3. **PDFs:** should admins be able to upload a PDF and have it split into page images?
+3. ~~**PDFs:**~~ Done 2026-10-18: the exam uploader accepts PDFs; pdf.js (lazy-loaded) renders each page in the browser and it is stored as WebP pages + thumbnails like photos (`src/lib/pdfPages.js`). The PDF itself isn't kept.
 4. **Exam IDs:** the existing exam is `2026`. If a subject has more than one exam per year, IDs need a suffix (e.g. `2026-first-term`).

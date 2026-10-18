@@ -8,15 +8,17 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test:rules": "firebase emulators:exec --only firestore,storage --project demo-azhar \"node --test tests/rules.test.js\"",
-    "deploy:rules": "firebase deploy --only firestore:rules,storage",
-    "test:functions": "firebase emulators:exec --only auth,firestore,storage,functions --project demo-azhar \"node --test tests/deleteNode.test.js\"",
+    "test:rules": "firebase emulators:exec --only firestore --project demo-azhar \"node --test tests/rules.test.js\"",
+    "deploy:rules": "firebase deploy --only firestore:rules",
+    "test:functions": "firebase emulators:exec --only auth,firestore,functions --project demo-azhar \"node --test tests/deleteNode.test.js\"",
     "emulators": "firebase emulators:start --project demo-azhar",
-    "deploy:functions": "firebase deploy --only functions"
+    "deploy:functions": "firebase deploy --only functions",
+    "cleanup:cloudinary": "node --env-file=.env scripts/cleanup-cloudinary.mjs"
   },
   "dependencies": {
     "firebase": "^13.0.0",
     "lucide-react": "^1.59.0",
+    "pdfjs-dist": "^6.4.299",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router": "^8.4.0"

@@ -1,9 +1,7 @@
 import { collection, doc, getDoc, getDocs, writeBatch } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
-import { deleteObject, listAll, ref } from 'firebase/storage'
-import { db, functions, storage } from '../firebase'
-import { imageFiles } from './examImages'
-import { categoriesPath, collectionPath, docPath, examStoragePrefix, LEVELS } from './paths'
+import { db, functions } from '../firebase'
+import { categoriesPath, collectionPath, docPath, LEVELS } from './paths'
 
 const BATCH_LIMIT = 500
 
@@ -12,8 +10,6 @@ const BATCH_LIMIT = 500
 export async function planDelete(ids) {
   const plan = {
     docs: [], // [{ path, depth }]
-    examIds: [],
-    filePaths: new Set(), // full images and thumbnails
     counts: { sections: 0, subjects: 0, exams: 0, images: 0 },
   }
 
@@ -23,9 +19,7 @@ export async function planDelete(ids) {
     plan.docs.push({ path: docPath(nodeIds), depth: nodeIds.length })
 
     if (level === 'exams') {
-      plan.examIds.push(nodeIds)
       plan.counts.images += data?.images?.length ?? 0
-      data?.images?.forEach((image) => imageFiles(image).forEach((p) => plan.filePaths.add(p)))
       return
     }
     if (level === 'sections') {
@@ -44,18 +38,6 @@ export async function planDelete(ids) {
   return plan
 }
 
-// Also picks up files that were uploaded but never recorded on the exam doc.
-async function listStorageFiles(prefix) {
-  try {
-    const result = await listAll(ref(storage, prefix))
-    const nested = await Promise.all(result.prefixes.map((p) => listStorageFiles(p.fullPath)))
-    return [...result.items.map((item) => item.fullPath), ...nested.flat()]
-  } catch (error) {
-    console.warn(`Could not list Storage under ${prefix}`, error)
-    return []
-  }
-}
-
 // Server-side delete (functions/index.js). Needs the Blaze plan, so it's opt-in.
 const USE_DELETE_FUNCTION = import.meta.env.VITE_DELETE_WITH_FUNCTION === 'true'
 
@@ -68,21 +50,9 @@ export async function deleteItem(ids, plan) {
   await deleteFromClient(ids, plan ?? (await planDelete(ids)))
 }
 
-// Storage files first, then docs deepest-first, so a failed run leaves no orphans
-// and can simply be retried.
+// Docs deepest-first, so a failed run leaves no orphans and can simply be retried.
+// Image files stay on Cloudinary (see lib/examImages.js).
 async function deleteFromClient(ids, plan) {
-  const files = new Set(plan.filePaths)
-  for (const examIds of plan.examIds) {
-    for (const path of await listStorageFiles(examStoragePrefix(examIds))) files.add(path)
-  }
-  await Promise.all(
-    [...files].map((path) =>
-      deleteObject(ref(storage, path)).catch((error) => {
-        if (error.code !== 'storage/object-not-found') throw error
-      }),
-    ),
-  )
-
   const docs = [...plan.docs].sort((a, b) => b.depth - a.depth)
   for (let i = 0; i < docs.length; i += BATCH_LIMIT) {
     const batch = writeBatch(db)

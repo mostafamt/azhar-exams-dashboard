@@ -1,17 +1,17 @@
 const FULL = { maxSide: 2000, quality: 0.85 }
-const THUMB = { maxSide: 480, quality: 0.75 }
 
 function canvasToBlob(canvas, type, quality) {
   return new Promise((resolve) => canvas.toBlob(resolve, type, quality))
 }
 
-// Full page (≤2000px, ~200 KB instead of a ~4 MB phone photo) plus a grid thumbnail (≤480px, ~25 KB).
-export async function compressImage(file) {
-  const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' })
+// ≤2000px, ~200 KB instead of a ~4 MB phone photo. Thumbnails come from Cloudinary transformations.
+// `source` is an image File, or a PDF page from pdfToPageSources() ({ getBitmap }).
+export async function compressImage(source) {
+  const bitmap = source.getBitmap
+    ? await source.getBitmap()
+    : await createImageBitmap(source, { imageOrientation: 'from-image' })
   try {
-    const full = await encode(bitmap, FULL)
-    const thumb = await encode(bitmap, THUMB)
-    return { ...full, thumb }
+    return await encode(bitmap, FULL)
   } finally {
     bitmap.close()
   }

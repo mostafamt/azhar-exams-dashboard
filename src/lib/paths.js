@@ -49,6 +49,7 @@ export function categoriesPath(sectionIds) {
   return `${docPath(sectionIds)}/categories`
 }
 
+// Cloudinary folder for an exam's pages (under ROOT_FOLDER), mirroring the Firestore path
 export function examStoragePrefix([gradeId, sectionId, subjectId, examId]) {
   return `exams/${gradeId}/${sectionId}/${subjectId}/${examId}`
 }

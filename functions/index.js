@@ -1,6 +1,5 @@
 import { initializeApp } from 'firebase-admin/app'
 import { getFirestore } from 'firebase-admin/firestore'
-import { getStorage } from 'firebase-admin/storage'
 import { HttpsError, onCall } from 'firebase-functions/https'
 
 initializeApp()
@@ -22,8 +21,8 @@ function isValidIds(ids) {
 }
 
 /**
- * Deletes a grade/section/subject/exam with everything below it: all nested documents
- * (recursiveDelete) and all image files under exams/{ids...}/ in Storage.
+ * Deletes a grade/section/subject/exam with all nested documents (recursiveDelete).
+ * Image files are on Cloudinary and stay there (deleting needs the Cloudinary API secret).
  * Runs to completion even if the admin closes the tab, unlike the client-side cascade.
  */
 export const deleteNode = onCall({ timeoutSeconds: 540, memory: '512MiB' }, async (request) => {
@@ -38,10 +37,6 @@ export const deleteNode = onCall({ timeoutSeconds: 540, memory: '512MiB' }, asyn
   const { ids } = request.data ?? {}
   if (!isValidIds(ids)) throw new HttpsError('invalid-argument', 'ids must be 1-4 path segments')
 
-  // Storage paths mirror the tree (exams/{grade}/{section}/{subject}/{exam}/...), so one
-  // prefix covers every exam below this node. Trailing slash: "g" must not match "g2".
-  await getStorage().bucket().deleteFiles({ prefix: `exams/${ids.join('/')}/` })
-  // Files first, then docs: if anything fails the docs still exist and the delete can be retried
   await db.recursiveDelete(db.doc(docPath(ids)))
 
   return { deleted: docPath(ids) }

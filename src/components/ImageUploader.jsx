@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { uploadExamImages } from '../lib/examImages'
 import { errorMessage } from '../lib/errors'
+import { isPdf, pdfToPageSources } from '../lib/pdfPages'
 
 const STATUS_LABELS = {
   queued: 'في الانتظار',
@@ -17,18 +18,49 @@ export function ImageUploader({ examIds }) {
   const inputRef = useRef(null)
   const [uploads, setUploads] = useState([])
   const [dragging, setDragging] = useState(false)
-  const busy = uploads.some((u) => u.status !== 'done' && u.status !== 'error')
+  const [preparing, setPreparing] = useState(false)
+  const [prepareError, setPrepareError] = useState(null)
+  const busy = preparing || uploads.some((u) => u.status !== 'done' && u.status !== 'error')
+  const doneCount = uploads.filter((u) => u.status === 'done').length
+  const failedCount = uploads.filter((u) => u.status === 'error').length
 
   async function start(fileList) {
-    const files = [...fileList].filter((f) => f.type.startsWith('image/')).sort(byName)
+    const files = [...fileList].filter((f) => f.type.startsWith('image/') || isPdf(f)).sort(byName)
     if (files.length === 0 || busy) return
-    setUploads(files.map((f) => ({ name: f.name, progress: 0, status: 'queued' })))
+
+    // Each PDF becomes its pages, in place, so the final order follows the file order
+    setPreparing(true)
+    setPrepareError(null)
+    setUploads([])
+    const sources = []
+    const openPdfs = []
     try {
-      await uploadExamImages(examIds, files, (i, update) =>
+      for (const file of files) {
+        if (!isPdf(file)) {
+          sources.push(file)
+          continue
+        }
+        const pdf = await pdfToPageSources(file)
+        openPdfs.push(pdf)
+        sources.push(...pdf.pages)
+      }
+    } catch (error) {
+      openPdfs.forEach((pdf) => pdf.destroy())
+      setPrepareError(error)
+      setPreparing(false)
+      return
+    }
+    setPreparing(false)
+
+    setUploads(sources.map((s) => ({ name: s.name, progress: 0, status: 'queued' })))
+    try {
+      await uploadExamImages(examIds, sources, (i, update) =>
         setUploads((list) => list.map((u, j) => (j === i ? { ...u, ...update } : u))),
       )
     } catch {
       // Per-file errors are already shown in the list
+    } finally {
+      openPdfs.forEach((pdf) => pdf.destroy())
     }
   }
 
@@ -47,20 +79,23 @@ export function ImageUploader({ examIds }) {
           start(e.dataTransfer.files)
         }}
       >
-        <p>اسحب صور الامتحان إلى هنا أو</p>
+        <p>اسحب صور الامتحان أو ملف PDF إلى هنا أو</p>
         <button
           type="button"
           className="primary"
           onClick={() => inputRef.current.click()}
           disabled={busy}
         >
-          اختر الصور
+          اختر الملفات
         </button>
-        <p className="hint">تُرتب الصفحات حسب اسم الملف، ويمكن تغيير الترتيب بعد الرفع</p>
+        <p className="hint">
+          تُحوَّل صفحات ملفات PDF إلى صور مناسبة للهاتف. تُرتب الصفحات حسب اسم الملف، ويمكن تغيير
+          الترتيب بعد الرفع
+        </p>
         <input
           ref={inputRef}
           type="file"
-          accept="image/*"
+          accept="image/*,application/pdf,.pdf"
           multiple
           hidden
           onChange={(e) => {
@@ -69,6 +104,20 @@ export function ImageUploader({ examIds }) {
           }}
         />
       </div>
+
+      {preparing && <p className="status">جارٍ قراءة ملفات PDF…</p>}
+      {prepareError && (
+        <p className="status error" role="alert">
+          {errorMessage(prepareError)}
+        </p>
+      )}
+
+      {uploads.length > 1 && (
+        <p className="upload-summary" aria-live="polite">
+          تم رفع {doneCount} من {uploads.length} صفحة
+          {failedCount > 0 && ` — فشل ${failedCount}`}
+        </p>
+      )}
 
       {uploads.length > 0 && (
         <ul className="upload-list">

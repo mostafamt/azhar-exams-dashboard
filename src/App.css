@@ -725,3 +725,15 @@ label.form {
   gap: 4px;
   margin-inline-start: auto;
 }
+
+.upload-summary {
+  margin: 12px 0 0;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+/* Long PDFs produce many rows; keep the list from taking over the page */
+.upload-list {
+  max-height: 260px;
+  overflow-y: auto;
+}
