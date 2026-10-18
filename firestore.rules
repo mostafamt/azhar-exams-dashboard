@@ -20,6 +20,31 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // A multiple-choice question: a body, exactly 4 choices and the index of the correct one.
+    function validChoice(choice) {
+      return choice is string && choice.size() > 0 && choice.size() <= 300;
+    }
+
+    function validMcq() {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['body', 'choices', 'correctIndex', 'source', 'createdAt', 'updatedAt'])
+        && d.body is string && d.body.size() > 0 && d.body.size() <= 1000
+        && d.choices is list && d.choices.size() == 4
+        && validChoice(d.choices[0]) && validChoice(d.choices[1])
+        && validChoice(d.choices[2]) && validChoice(d.choices[3])
+        && d.correctIndex is int && d.correctIndex >= 0 && d.correctIndex <= 3
+        && (!('source' in d) || d.source == null || d.source is map);
+    }
+
+    // Question bank: ids are "q" + a number of at least 2 digits (q01, q02, …, q100, …).
+    match /questions/mcq-questions/items/{questionId} {
+      allow read: if true;
+      allow create, update: if isAdmin()
+        && questionId.matches('q(0[1-9]|[1-9][0-9]+)')
+        && validMcq();
+      allow delete: if isAdmin();
+    }
+
     // Users may only check their own admin status; admins are managed in the console.
     match /admins/{uid} {
       allow read: if request.auth != null && request.auth.uid == uid;

@@ -9,6 +9,8 @@ import {
 import { deleteDoc, doc, getDoc, setDoc, updateDoc } from 'firebase/firestore'
 
 const EXAM = 'grades/g/sections/s/subjects/sub/exams/e'
+const QUESTIONS = 'questions/mcq-questions/items'
+const MCQ = { body: 'سؤال؟', choices: ['أ', 'ب', 'ج', 'د'], correctIndex: 1 }
 
 let env
 
@@ -71,6 +73,49 @@ describe('firestore', () => {
     await assertFails(getDoc(doc(anon().firestore(), 'admins/admin')))
     await assertFails(setDoc(doc(student().firestore(), 'admins/student'), {}))
     await assertFails(setDoc(doc(admin().firestore(), 'admins/student'), {}))
+  })
+
+  test('anyone can read questions; only admins can write them', async () => {
+    await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), `${QUESTIONS}/q01`), MCQ))
+    await assertSucceeds(getDoc(doc(anon().firestore(), `${QUESTIONS}/q01`)))
+    for (const ctx of [anon(), student()]) {
+      const db = ctx.firestore()
+      await assertFails(setDoc(doc(db, `${QUESTIONS}/q02`), MCQ))
+      await assertFails(updateDoc(doc(db, `${QUESTIONS}/q01`), { body: 'x' }))
+      await assertFails(deleteDoc(doc(db, `${QUESTIONS}/q01`)))
+    }
+    const db = admin().firestore()
+    await assertSucceeds(updateDoc(doc(db, `${QUESTIONS}/q01`), { correctIndex: 3 }))
+    await assertSucceeds(deleteDoc(doc(db, `${QUESTIONS}/q01`)))
+  })
+
+  test('question ids are q + a number of at least 2 digits', async () => {
+    const db = admin().firestore()
+    for (const id of ['q01', 'q20', 'q21', 'q99', 'q100', 'q1234']) {
+      await assertSucceeds(setDoc(doc(db, `${QUESTIONS}/${id}`), MCQ))
+    }
+    for (const id of ['q00', 'q1', 'q0100', 'q', 'q1a', 'abc']) {
+      await assertFails(setDoc(doc(db, `${QUESTIONS}/${id}`), MCQ))
+    }
+    await assertFails(setDoc(doc(db, 'questions/other-bank/items/q01'), MCQ))
+  })
+
+  test('questions must have a body, 4 choices and a correct index of 0 to 3', async () => {
+    const db = admin().firestore()
+    const ref = doc(db, `${QUESTIONS}/q01`)
+    await assertSucceeds(setDoc(ref, { ...MCQ, source: { examId: 'e', imageId: 'a' } }))
+    for (const bad of [
+      { ...MCQ, body: '' },
+      { choices: MCQ.choices, correctIndex: 0 },
+      { ...MCQ, choices: ['أ', 'ب', 'ج'] },
+      { ...MCQ, choices: ['أ', 'ب', 'ج', 'د', 'هـ'] },
+      { ...MCQ, choices: ['أ', '', 'ج', 'د'] },
+      { ...MCQ, correctIndex: 4 },
+      { ...MCQ, correctIndex: '1' },
+      { ...MCQ, extra: true },
+    ]) {
+      await assertFails(setDoc(ref, bad))
+    }
   })
 
   test('other collections are closed', async () => {

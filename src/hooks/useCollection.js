@@ -3,10 +3,17 @@ import { collection, onSnapshot } from 'firebase/firestore'
 import { db } from '../firebase'
 import { sortItems } from '../lib/crud'
 import { categoriesPath, collectionPath } from '../lib/paths'
+import { MCQ_ITEMS_PATH, sortQuestions } from '../lib/questions'
 
-// Live, sorted list of the children of `parentIds`.
+// Live, sorted list of the children of `parentIds`; pass null to read nothing.
 export function useCollection(parentIds) {
-  return useCollectionAt(collectionPath(parentIds))
+  return useCollectionAt(parentIds ? collectionPath(parentIds) : null)
+}
+
+// Live list of the question bank, in number order (q01, q02, …).
+export function useQuestions() {
+  const result = useCollectionAt(MCQ_ITEMS_PATH)
+  return { ...result, items: sortQuestions(result.items) }
 }
 
 // Live, sorted categories of a section; pass null when not on a subjects page.

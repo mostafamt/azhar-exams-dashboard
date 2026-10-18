@@ -23,6 +23,9 @@ export function Navbar() {
                   الرئيسية
                 </NavLink>
               </li>
+              <li>
+                <NavLink to="/question-bank">بنك الأسئلة</NavLink>
+              </li>
             </ul>
           </nav>
 

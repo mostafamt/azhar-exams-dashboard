@@ -6,6 +6,7 @@ import { Empty } from './components/Status'
 import { ExamPage } from './pages/ExamPage'
 import { LevelPage } from './pages/LevelPage'
 import { LoginPage } from './pages/LoginPage'
+import { QuestionBankPage } from './pages/QuestionBankPage'
 import './App.css'
 
 function App() {
@@ -17,8 +18,9 @@ function App() {
           <main className="app">
           <Routes>
             <Route index element={<LevelPage />} />
-            {/* Static route wins over :gradeId, so "login" can't be used as a grade id */}
+            {/* Static routes win over :gradeId, so these can't be used as grade ids */}
             <Route path="login" element={<LoginPage />} />
+            <Route path="question-bank" element={<QuestionBankPage />} />
             <Route path=":gradeId" element={<LevelPage />} />
             <Route path=":gradeId/:sectionId" element={<LevelPage />} />
             <Route path=":gradeId/:sectionId/:subjectId" element={<LevelPage />} />

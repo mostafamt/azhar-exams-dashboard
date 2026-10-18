@@ -743,3 +743,258 @@ label.form {
   max-height: 260px;
   overflow-y: auto;
 }
+
+/* Question bank */
+.modal-wide {
+  width: min(720px, calc(100vw - 32px));
+}
+
+.form textarea {
+  font: inherit;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text-h);
+  resize: vertical;
+}
+
+.form fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.form legend {
+  padding: 0 4px;
+  font-size: 0.9rem;
+  color: var(--text-h);
+}
+
+.choice-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.choice-input input:not([type='radio']) {
+  flex: 1;
+  min-width: 0;
+}
+
+.choice-input input[type='radio'] {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.choice-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.source-preview {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.source-preview-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-inline-start: 10px;
+  font-size: 0.85rem;
+  background: var(--bg);
+}
+
+.source-preview-image {
+  max-height: 360px;
+  overflow: auto;
+  background: #fff;
+}
+
+.source-preview-image img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.source-thumbs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 200px;
+  overflow: auto;
+}
+
+.source-thumbs button {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 0;
+  overflow: hidden;
+  border-width: 2px;
+}
+
+.source-thumbs button.selected {
+  border-color: var(--accent);
+}
+
+.source-thumbs img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1.414;
+  object-fit: cover;
+}
+
+.source-thumbs span {
+  position: absolute;
+  bottom: 2px;
+  inset-inline-start: 2px;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: rgb(0 0 0 / 0.6);
+  color: #fff;
+  font-size: 0.75rem;
+}
+
+.questions {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.question {
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.question-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.question-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  min-width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.question-body {
+  flex: 1;
+  margin: 0;
+  color: var(--text-h);
+  font-weight: 600;
+  white-space: pre-wrap;
+}
+
+.question-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.choice {
+  width: 100%;
+  height: 100%;
+  justify-content: flex-start;
+  gap: 10px;
+  text-align: start;
+}
+
+.choice:disabled {
+  opacity: 1;
+  cursor: default;
+}
+
+.choice:not(:disabled):hover {
+  border-color: var(--accent);
+}
+
+.choice-text {
+  flex: 1;
+}
+
+.choice.correct {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+}
+
+.choice.correct svg {
+  color: var(--accent);
+}
+
+.choice.wrong {
+  border-color: var(--error);
+  background: color-mix(in srgb, var(--error) 12%, var(--surface));
+}
+
+.choice.wrong svg {
+  color: var(--error);
+}
+
+.question-source {
+  margin-top: 12px;
+  padding: 4px 10px;
+  font-size: 0.85rem;
+  color: var(--accent);
+}
+
+.quiz-summary {
+  position: sticky;
+  bottom: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 24px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text-h);
+  font-weight: 600;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.08);
+}

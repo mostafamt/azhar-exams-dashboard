@@ -11,7 +11,7 @@ import { db } from '../firebase'
 import { collectionPath, docPath, SLUG_PATTERN } from './paths'
 
 // Top-level app routes; a grade with one of these ids would be unreachable
-const RESERVED_GRADE_IDS = ['login']
+const RESERVED_GRADE_IDS = ['login', 'question-bank']
 
 // Docs without `order` (e.g. created in the console) sort after ordered ones, then by name.
 export function sortItems(items) {

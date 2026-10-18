@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 
 // Native <dialog> shown as a modal while mounted. Escape / backdrop click call onClose.
-export function Modal({ title, onClose, children }) {
+export function Modal({ title, onClose, wide, children }) {
   const ref = useRef(null)
 
   useEffect(() => {
@@ -13,7 +13,7 @@ export function Modal({ title, onClose, children }) {
   return (
     <dialog
       ref={ref}
-      className="modal"
+      className={wide ? 'modal modal-wide' : 'modal'}
       onCancel={(e) => {
         e.preventDefault()
         onClose()
