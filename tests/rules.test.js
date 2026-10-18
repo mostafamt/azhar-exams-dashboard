@@ -27,8 +27,10 @@ beforeEach(async () => {
   await env.clearFirestore()
   await env.withSecurityRulesDisabled(async (ctx) => {
     const db = ctx.firestore()
-    await setDoc(doc(db, 'admins/admin'), {})
+    await setDoc(doc(db, 'users/admin'), { name: 'مشرف', email: 'admin@example.com', role: 'admin' })
+    await setDoc(doc(db, 'admins/legacy'), {})
     await setDoc(doc(db, 'grades/g'), { name: 'صف' })
+    await setDoc(doc(db, 'grades/g/sections/s'), { name: 'قسم' })
     await setDoc(doc(db, EXAM), { name: 'امتحان', images: [] })
   })
 })
@@ -36,6 +38,10 @@ beforeEach(async () => {
 const anon = () => env.unauthenticatedContext()
 const student = () => env.authenticatedContext('student')
 const admin = () => env.authenticatedContext('admin')
+const legacyAdmin = () => env.authenticatedContext('legacy')
+const withEmail = (uid) => env.authenticatedContext(uid, { email: `${uid}@example.com` })
+
+const PROFILE = { name: 'طالب', email: 'student@example.com', role: 'student', gradeId: 'g', sectionId: 's' }
 
 describe('firestore', () => {
   test('anyone can read the tree', async () => {
@@ -60,6 +66,20 @@ describe('firestore', () => {
     await assertSucceeds(deleteDoc(doc(db, EXAM)))
   })
 
+  test('legacy admins/{uid} records still grant admin during the migration', async () => {
+    const db = legacyAdmin().firestore()
+    await assertSucceeds(setDoc(doc(db, 'grades/new'), { name: 'جديد' }))
+    await assertSucceeds(deleteDoc(doc(db, 'grades/new')))
+  })
+
+  test('a users/{uid} profile with role student grants no writes', async () => {
+    await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'users/student'), PROFILE))
+    const db = student().firestore()
+    await assertFails(setDoc(doc(db, 'grades/new'), { name: 'x' }))
+    await assertFails(updateDoc(doc(db, EXAM), { name: 'x' }))
+    await assertFails(setDoc(doc(db, `${QUESTIONS}/q02`), MCQ))
+  })
+
   test('admin writes must keep a string name', async () => {
     const db = admin().firestore()
     await assertFails(setDoc(doc(db, 'grades/bad'), { order: 1 }))
@@ -67,10 +87,10 @@ describe('firestore', () => {
   })
 
   test('users can only read their own admin record, and nobody can write one', async () => {
-    await assertSucceeds(getDoc(doc(admin().firestore(), 'admins/admin')))
+    await assertSucceeds(getDoc(doc(legacyAdmin().firestore(), 'admins/legacy')))
     await assertSucceeds(getDoc(doc(student().firestore(), 'admins/student')))
-    await assertFails(getDoc(doc(student().firestore(), 'admins/admin')))
-    await assertFails(getDoc(doc(anon().firestore(), 'admins/admin')))
+    await assertFails(getDoc(doc(student().firestore(), 'admins/legacy')))
+    await assertFails(getDoc(doc(anon().firestore(), 'admins/legacy')))
     await assertFails(setDoc(doc(student().firestore(), 'admins/student'), {}))
     await assertFails(setDoc(doc(admin().firestore(), 'admins/student'), {}))
   })
@@ -116,6 +136,51 @@ describe('firestore', () => {
     ]) {
       await assertFails(setDoc(ref, bad))
     }
+  })
+
+  test('students create their own profile, only as student, with a real grade and section', async () => {
+    const db = withEmail('student').firestore()
+    const ref = doc(db, 'users/student')
+    for (const bad of [
+      { ...PROFILE, role: 'admin' },
+      { ...PROFILE, email: 'someone@else.com' },
+      { ...PROFILE, sectionId: 'missing' },
+      { ...PROFILE, name: '' },
+      { ...PROFILE, extra: true },
+    ]) {
+      await assertFails(setDoc(ref, bad))
+    }
+    await assertFails(setDoc(doc(db, 'users/other'), { ...PROFILE }))
+    await assertFails(setDoc(doc(anon().firestore(), 'users/student'), PROFILE))
+    await assertSucceeds(setDoc(ref, PROFILE))
+  })
+
+  test('students edit name, grade and section but never role, email or createdAt', async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'users/student'), PROFILE)
+      await setDoc(doc(ctx.firestore(), 'grades/g/sections/s2'), { name: 'قسم ٢' })
+    })
+    const ref = doc(withEmail('student').firestore(), 'users/student')
+    await assertSucceeds(updateDoc(ref, { name: 'اسم جديد', sectionId: 's2' }))
+    await assertFails(updateDoc(ref, { role: 'admin' }))
+    await assertFails(updateDoc(ref, { email: 'x@example.com' }))
+    await assertFails(updateDoc(ref, { createdAt: 1 }))
+    await assertFails(updateDoc(ref, { sectionId: 'missing' }))
+    await assertFails(deleteDoc(ref))
+  })
+
+  test('profiles are readable by their owner and admins only', async () => {
+    await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'users/student'), PROFILE))
+    await assertSucceeds(getDoc(doc(student().firestore(), 'users/student')))
+    await assertSucceeds(getDoc(doc(admin().firestore(), 'users/student')))
+    await assertFails(getDoc(doc(env.authenticatedContext('other').firestore(), 'users/student')))
+    await assertFails(getDoc(doc(anon().firestore(), 'users/student')))
+    await assertFails(getDoc(doc(student().firestore(), 'users/admin')))
+  })
+
+  test('admins cannot write other profiles, and their own needs a grade and section', async () => {
+    await assertFails(updateDoc(doc(admin().firestore(), 'users/admin'), { name: 'x' }))
+    await assertFails(setDoc(doc(admin().firestore(), 'users/student'), PROFILE))
   })
 
   test('other collections are closed', async () => {

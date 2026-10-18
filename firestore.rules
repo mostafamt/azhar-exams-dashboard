@@ -1,10 +1,26 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // An admin is a signed-in user with a document at admins/{uid} (created in the console).
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function userPath() {
+      return /databases/$(database)/documents/users/$(request.auth.uid);
+    }
+
+    // An admin is a signed-in user whose users/{uid} has role 'admin' (set in the console).
+    // TRANSITION: admins/{uid} still counts until every admin is migrated (scripts/migrate-admins.mjs);
+    // then drop that branch and the `match /admins/{uid}` block below.
     function isAdmin() {
-      return request.auth != null
-        && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+      return signedIn() && (
+        (exists(userPath()) && get(userPath()).data.get('role', '') == 'admin')
+        || exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
     }
 
     // Every node in the tree has a display name.
@@ -45,7 +61,33 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // Users may only check their own admin status; admins are managed in the console.
+    // A student's profile; grade and section must exist in the tree.
+    function validProfile() {
+      let d = request.resource.data;
+      return d.name is string && d.name.size() > 0 && d.name.size() <= 100
+        && d.gradeId is string && d.gradeId.size() > 0
+        && d.sectionId is string && d.sectionId.size() > 0
+        && exists(/databases/$(database)/documents/grades/$(d.gradeId)/sections/$(d.sectionId));
+    }
+
+    // One collection for students and admins. Clients can only create themselves as students and
+    // can never change role, email or createdAt; admins are promoted in the console.
+    match /users/{uid} {
+      allow read: if isOwner(uid) || isAdmin();
+      allow create: if isOwner(uid)
+        && request.resource.data.keys().hasOnly(
+          ['name', 'email', 'role', 'gradeId', 'sectionId', 'createdAt', 'updatedAt'])
+        && request.resource.data.role == 'student'
+        && request.resource.data.email == request.auth.token.email
+        && validProfile();
+      allow update: if isOwner(uid)
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['name', 'gradeId', 'sectionId', 'updatedAt'])
+        && validProfile();
+      allow delete: if false;
+    }
+
+    // TRANSITION: legacy admin records, removed once users/{uid}.role is the only source.
     match /admins/{uid} {
       allow read: if request.auth != null && request.auth.uid == uid;
       allow write: if false;

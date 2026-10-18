@@ -30,7 +30,7 @@ export const deleteNode = onCall({ timeoutSeconds: 540, memory: '512MiB' }, asyn
   if (!uid) throw new HttpsError('unauthenticated', 'Sign in first')
 
   const db = getFirestore()
-  if (!(await db.doc(`admins/${uid}`).get()).exists) {
+  if ((await db.doc(`users/${uid}`).get()).get('role') !== 'admin') {
     throw new HttpsError('permission-denied', 'Admins only')
   }
 

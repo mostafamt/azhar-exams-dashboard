@@ -4,28 +4,31 @@ import { doc, onSnapshot } from 'firebase/firestore'
 import { auth, db } from '../firebase'
 import { AuthContext } from './AuthContext'
 
-// Tracks the signed-in user and whether admins/{uid} exists for them.
+// Tracks the signed-in user and their users/{uid} profile (role 'admin' unlocks editing).
 export function AuthProvider({ children }) {
   // undefined = not known yet, null = signed out
   const [user, setUser] = useState(undefined)
-  const [admin, setAdmin] = useState({ uid: null, isAdmin: false })
+  // profile: users/{uid} data, or null when the document doesn't exist (yet)
+  const [account, setAccount] = useState({ uid: null, profile: null })
 
   useEffect(() => onAuthStateChanged(auth, setUser), [])
 
   useEffect(() => {
     if (!user) return
     return onSnapshot(
-      doc(db, 'admins', user.uid),
-      (snapshot) => setAdmin({ uid: user.uid, isAdmin: snapshot.exists() }),
-      () => setAdmin({ uid: user.uid, isAdmin: false }),
+      doc(db, 'users', user.uid),
+      (snapshot) => setAccount({ uid: user.uid, profile: snapshot.exists() ? snapshot.data() : null }),
+      () => setAccount({ uid: user.uid, profile: null }),
     )
   }, [user])
 
-  const adminKnown = !user || admin.uid === user.uid
+  const profileKnown = !user || account.uid === user.uid
+  const profile = user && account.uid === user.uid ? account.profile : null
   const value = {
     user: user ?? null,
-    loading: user === undefined || !adminKnown,
-    isAdmin: Boolean(user) && admin.uid === user.uid && admin.isAdmin,
+    profile,
+    loading: user === undefined || !profileKnown,
+    isAdmin: profile?.role === 'admin',
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

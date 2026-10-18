@@ -14,7 +14,7 @@ const AUTH_ERRORS = {
 }
 
 export function LoginPage() {
-  const { user, loading, isAdmin } = useAuth()
+  const { user, loading } = useAuth()
   const location = useLocation()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -22,7 +22,8 @@ export function LoginPage() {
   const [error, setError] = useState(null)
 
   if (loading) return <p className="status">جارٍ التحميل…</p>
-  if (isAdmin) return <Navigate to={location.state?.from ?? '/'} replace />
+  // Students sign in too; they just get read-only pages (editing needs role 'admin').
+  if (user) return <Navigate to={location.state?.from ?? '/'} replace />
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -39,48 +40,42 @@ export function LoginPage() {
 
   return (
     <section className="login">
-      <h1>دخول المشرفين</h1>
-      {user ? (
-        <p className="field-error" role="alert">
-          الحساب {user.email} ليس لديه صلاحيات المشرف.
-        </p>
-      ) : (
-        <form className="form" onSubmit={handleSubmit}>
-          <label>
-            البريد الإلكتروني
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              autoComplete="username"
-              dir="ltr"
-              required
-              autoFocus
-            />
-          </label>
-          <label>
-            كلمة المرور
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="current-password"
-              dir="ltr"
-              required
-            />
-          </label>
-          {error && (
-            <p className="field-error" role="alert">
-              {error}
-            </p>
-          )}
-          <div className="form-actions">
-            <button type="submit" className="primary" disabled={submitting}>
-              {submitting ? 'جارٍ الدخول…' : 'دخول'}
-            </button>
-          </div>
-        </form>
-      )}
+      <h1>تسجيل الدخول</h1>
+      <form className="form" onSubmit={handleSubmit}>
+        <label>
+          البريد الإلكتروني
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            autoComplete="username"
+            dir="ltr"
+            required
+            autoFocus
+          />
+        </label>
+        <label>
+          كلمة المرور
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
+            dir="ltr"
+            required
+          />
+        </label>
+        {error && (
+          <p className="field-error" role="alert">
+            {error}
+          </p>
+        )}
+        <div className="form-actions">
+          <button type="submit" className="primary" disabled={submitting}>
+            {submitting ? 'جارٍ الدخول…' : 'دخول'}
+          </button>
+        </div>
+      </form>
       <p>
         <Link to="/">العودة للرئيسية</Link>
       </p>

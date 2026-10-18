@@ -39,7 +39,7 @@ export function Footer() {
         {!user && location.pathname !== '/login' && (
           <Link to="/login" state={{ from: location.pathname }} className="footer-login">
             <LogIn size={14} aria-hidden="true" />
-            دخول المشرفين
+            تسجيل الدخول
           </Link>
         )}
       </div>

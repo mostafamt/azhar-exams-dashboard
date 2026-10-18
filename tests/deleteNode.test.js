@@ -54,14 +54,19 @@ test('rejects signed-out callers', async () => {
 })
 
 test('rejects signed-in non-admins', async () => {
-  await createUserWithEmailAndPassword(auth, 'student@example.com', 'password123')
+  const { user } = await createUserWithEmailAndPassword(auth, 'student@example.com', 'password123')
+  await env.withSecurityRulesDisabled((ctx) =>
+    setDoc(doc(ctx.firestore(), `users/${user.uid}`), { name: 'طالب', email: user.email, role: 'student' }),
+  )
   await assert.rejects(deleteNode({ ids: ['g', 's'] }), { code: 'functions/permission-denied' })
   assert.equal(await exists(EXAM), true)
 })
 
 test('rejects malformed ids', async () => {
   const { user } = await createUserWithEmailAndPassword(auth, 'admin@example.com', 'password123')
-  await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), `admins/${user.uid}`), {}))
+  await env.withSecurityRulesDisabled((ctx) =>
+    setDoc(doc(ctx.firestore(), `users/${user.uid}`), { name: 'مشرف', email: user.email, role: 'admin' }),
+  )
   for (const ids of [[], ['g/x'], 'g', ['a', 'b', 'c', 'd', 'e']]) {
     await assert.rejects(deleteNode({ ids }), { code: 'functions/invalid-argument' })
   }

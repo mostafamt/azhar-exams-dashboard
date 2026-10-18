@@ -5,7 +5,7 @@ import { auth } from '../firebase'
 import { useAuth } from '../hooks/useAuth'
 
 export function Navbar() {
-  const { user, isAdmin } = useAuth()
+  const { user, profile, isAdmin } = useAuth()
 
   return (
     <header className="navbar">
@@ -31,10 +31,10 @@ export function Navbar() {
 
           {user && (
             <div className="navbar-user">
-              <span className="navbar-email" dir="ltr">
-                {user.email}
+              <span className="navbar-email" dir="auto">
+                {profile?.name ?? user.email}
               </span>
-              {isAdmin && <span className="badge">مشرف</span>}
+              <span className="badge">{isAdmin ? 'مشرف' : 'طالب'}</span>
               <button type="button" onClick={() => signOut(auth)}>
                 <LogOut size={16} aria-hidden="true" />
                 خروج
