@@ -82,6 +82,7 @@
 .image-grid img {
   display: block;
   width: 100%;
+  height: auto;
   aspect-ratio: 1 / 1.414;
   object-fit: cover;
   border: 1px solid var(--border);
@@ -620,22 +621,27 @@ label.form {
   text-decoration: none;
 }
 
+/* Native scroll box for the page. ltr keeps scrollLeft positive for the zoom math;
+   overscroll-behavior stops the wheel from scrolling the site behind the viewer */
 .viewer-stage {
+  display: flex;
   width: 100%;
   height: 100%;
-  display: grid;
-  place-items: center;
-  touch-action: none;
+  overflow: auto;
+  overscroll-behavior: contain;
+  direction: ltr;
+  touch-action: pan-x pan-y;
   user-select: none;
   cursor: grab;
 }
 
+/* margin: auto centres the page while it's smaller than the screen, without
+   clipping it once it's larger (unlike align/justify-content: center) */
 .viewer-stage img {
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
-  transform-origin: center;
-  will-change: transform;
+  display: block;
+  flex: none;
+  height: auto;
+  margin: auto;
 }
 
 .viewer-nav {
