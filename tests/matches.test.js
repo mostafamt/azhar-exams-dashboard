@@ -8,15 +8,18 @@ import {
   initializeTestEnvironment,
 } from '@firebase/rules-unit-testing'
 import {
+  collection,
   deleteDoc,
-  deleteField,
   doc,
   getDoc,
+  getDocs,
   increment,
+  query,
   serverTimestamp,
   setDoc,
   Timestamp,
   updateDoc,
+  where,
 } from 'firebase/firestore'
 
 const MATCH = 'matches/m'
@@ -64,7 +67,6 @@ function newMatch(overrides = {}) {
     finishedAt: null,
     winnerId: null,
     rematchId: null,
-    expireAt: Timestamp.fromMillis(Date.now() + 3600_000),
     ...overrides,
   }
 }
@@ -80,7 +82,6 @@ async function seed({ startedSecondsAgo = 0, current = 0, answers = {}, status =
     setDoc(doc(ctx.firestore(), MATCH), {
       ...newMatch(),
       createdAt: started,
-      expireAt: null,
       status,
       current,
       questionStartedAt: started,
@@ -121,6 +122,7 @@ describe('matches: create, read, cancel', () => {
     await assertFails(setDoc(ref('a'), newMatch({ status: 'playing' })))
     await assertFails(setDoc(ref('a'), newMatch({ questions: [] })))
     await assertFails(setDoc(ref('a'), newMatch({ secondsPerQuestion: 600 })))
+    await assertFails(setDoc(ref('a'), newMatch({ expireAt: null })))
   })
 
   test('anyone signed in can read a waiting match; only players can read a running one', async () => {
@@ -131,6 +133,12 @@ describe('matches: create, read, cancel', () => {
     await assertSucceeds(getDoc(ref('a')))
     await assertSucceeds(getDoc(ref('b')))
     await assertFails(getDoc(ref('c')))
+  })
+
+  test('a host can find their own leftover waiting matches', async () => {
+    await seedWaiting()
+    const mine = query(collection(db('a'), 'matches'), where('hostId', '==', 'a'), where('status', '==', 'waiting'))
+    await assertSucceeds(getDocs(mine))
   })
 
   test('only the host deletes, and only while waiting', async () => {
@@ -150,7 +158,6 @@ describe('matches: join', () => {
       [`players.${uid}`]: player,
       startedAt: serverTimestamp(),
       questionStartedAt: serverTimestamp(),
-      expireAt: deleteField(),
     })
 
   test('a second player joins and starts the match', async () => {

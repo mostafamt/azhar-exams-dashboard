@@ -151,7 +151,7 @@ service cloud.firestore {
       let d = request.resource.data;
       return d.keys().hasOnly(['mode', 'code', 'queueKey', 'subjectId', 'preset', 'secondsPerQuestion',
           'questions', 'status', 'current', 'questionStartedAt', 'hostId', 'playerIds', 'players',
-          'createdAt', 'startedAt', 'finishedAt', 'winnerId', 'rematchId', 'expireAt'])
+          'createdAt', 'startedAt', 'finishedAt', 'winnerId', 'rematchId'])
         && d.mode in ['random', 'code']
         && (d.mode == 'code' ? d.code is string && d.code.size() == 6 : d.queueKey is string)
         && d.status == 'waiting'
@@ -178,7 +178,7 @@ service cloud.firestore {
         && resource.data.status == 'waiting'
         && resource.data.playerIds.size() == 1
         && !(request.auth.uid in resource.data.playerIds)
-        && changedKeys().hasOnly(['status', 'playerIds', 'players', 'startedAt', 'questionStartedAt', 'expireAt'])
+        && changedKeys().hasOnly(['status', 'playerIds', 'players', 'startedAt', 'questionStartedAt'])
         && request.resource.data.status == 'playing'
         && request.resource.data.playerIds == resource.data.playerIds.concat([request.auth.uid])
         && onlyMyPlayerChanged()
