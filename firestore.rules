@@ -93,6 +93,151 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // ── 1v1 matches (azhar-exams app: docs/match-plan.md) ──────────────────────────────────
+    // Both players move through the questions together: `current` is the shared question and
+    // `questionStartedAt` (server time) times it. Each player writes only their own `players.{uid}`.
+    // Clients grade themselves, but the rules check every answer against the question's
+    // correctIndex, so `correct` and `score` can't be faked. Matches are unranked.
+
+    function isPlayer(d) {
+      return signedIn() && request.auth.uid in d.playerIds;
+    }
+
+    function changedKeys() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    function onlyMyPlayerChanged() {
+      return request.resource.data.players.diff(resource.data.players).affectedKeys()
+        .hasOnly([request.auth.uid]);
+    }
+
+    function validNewPlayer(p) {
+      return p.keys().hasOnly(['name', 'answers', 'score', 'left'])
+        && p.name is string && p.name.size() > 0 && p.name.size() <= 100
+        && p.answers == {} && p.score == 0 && p.left == false;
+    }
+
+    function hasAnswered(d, uid) {
+      return string(d.current) in d.players[uid].answers;
+    }
+
+    // The current question is over: both answered, or its time is up.
+    function questionOver(d) {
+      return (hasAnswered(d, d.playerIds[0]) && hasAnswered(d, d.playerIds[1]))
+        || request.time > d.questionStartedAt + duration.value(d.secondsPerQuestion, 's');
+    }
+
+    // I add exactly one answer, for the current question, once, in time (+2 s for latency),
+    // graded against the question, with the score raised by exactly that grade.
+    function answersCurrentQuestion() {
+      let d = resource.data;
+      let key = string(d.current);
+      let before = d.players[request.auth.uid];
+      let after = request.resource.data.players[request.auth.uid];
+      let answer = after.answers[key];
+      return after.diff(before).affectedKeys().hasOnly(['answers', 'score'])
+        && after.answers.diff(before.answers).affectedKeys().hasOnly([key])
+        && !hasAnswered(d, request.auth.uid)
+        && request.time <= d.questionStartedAt + duration.value(d.secondsPerQuestion + 2, 's')
+        && answer.keys().hasOnly(['choice', 'correct', 'ms'])
+        && answer.choice is int && answer.choice >= 0 && answer.choice <= 3
+        && answer.correct == (answer.choice == d.questions[d.current].correctIndex)
+        && answer.ms is int && answer.ms >= 0 && answer.ms <= d.secondsPerQuestion * 1000
+        && after.score == before.score + (answer.correct ? 1 : 0);
+    }
+
+    function validNewMatch() {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['mode', 'code', 'queueKey', 'subjectId', 'preset', 'secondsPerQuestion',
+          'questions', 'status', 'current', 'questionStartedAt', 'hostId', 'playerIds', 'players',
+          'createdAt', 'startedAt', 'finishedAt', 'winnerId', 'rematchId', 'expireAt'])
+        && d.mode in ['random', 'code']
+        && (d.mode == 'code' ? d.code is string && d.code.size() == 6 : d.queueKey is string)
+        && d.status == 'waiting'
+        && d.current == 0
+        && d.questionStartedAt == null
+        && d.hostId == request.auth.uid
+        && d.playerIds == [request.auth.uid]
+        && d.players.keys().hasOnly([request.auth.uid])
+        && validNewPlayer(d.players[request.auth.uid])
+        && d.questions is list && d.questions.size() >= 1 && d.questions.size() <= 25
+        && d.secondsPerQuestion is int && d.secondsPerQuestion >= 5 && d.secondsPerQuestion <= 60
+        && d.createdAt == request.time
+        && d.winnerId == null && d.rematchId == null;
+    }
+
+    match /matches/{matchId} {
+      // Waiting matches are visible to everyone signed in (matchmaking and room codes).
+      allow read: if signedIn() && (resource.data.status == 'waiting' || isPlayer(resource.data));
+
+      allow create: if signedIn() && validNewMatch();
+
+      // Join: a second player adds only themselves and starts question 0.
+      allow update: if signedIn()
+        && resource.data.status == 'waiting'
+        && resource.data.playerIds.size() == 1
+        && !(request.auth.uid in resource.data.playerIds)
+        && changedKeys().hasOnly(['status', 'playerIds', 'players', 'startedAt', 'questionStartedAt', 'expireAt'])
+        && request.resource.data.status == 'playing'
+        && request.resource.data.playerIds == resource.data.playerIds.concat([request.auth.uid])
+        && onlyMyPlayerChanged()
+        && validNewPlayer(request.resource.data.players[request.auth.uid])
+        && request.resource.data.startedAt == request.time
+        && request.resource.data.questionStartedAt == request.time;
+
+      // Answer the current question.
+      allow update: if isPlayer(resource.data)
+        && resource.data.status == 'playing'
+        && changedKeys().hasOnly(['players'])
+        && onlyMyPlayerChanged()
+        && answersCurrentQuestion();
+
+      // Move both players to the next question.
+      allow update: if isPlayer(resource.data)
+        && resource.data.status == 'playing'
+        && changedKeys().hasOnly(['current', 'questionStartedAt'])
+        && request.resource.data.current == resource.data.current + 1
+        && request.resource.data.current < resource.data.questions.size()
+        && request.resource.data.questionStartedAt == request.time
+        && questionOver(resource.data);
+
+      // Finish after the last question.
+      allow update: if isPlayer(resource.data)
+        && resource.data.status == 'playing'
+        && changedKeys().hasOnly(['status', 'finishedAt', 'winnerId'])
+        && request.resource.data.status == 'finished'
+        && request.resource.data.finishedAt == request.time
+        && resource.data.current == resource.data.questions.size() - 1
+        && questionOver(resource.data)
+        && (request.resource.data.winnerId == null || request.resource.data.winnerId in resource.data.playerIds);
+
+      // Forfeit: I leave and the match finishes with my opponent as the winner.
+      allow update: if isPlayer(resource.data)
+        && resource.data.status == 'playing'
+        && changedKeys().hasOnly(['players', 'status', 'finishedAt', 'winnerId'])
+        && onlyMyPlayerChanged()
+        && request.resource.data.players[request.auth.uid].diff(resource.data.players[request.auth.uid])
+          .affectedKeys().hasOnly(['left'])
+        && request.resource.data.players[request.auth.uid].left == true
+        && request.resource.data.status == 'finished'
+        && request.resource.data.finishedAt == request.time
+        && request.resource.data.winnerId in resource.data.playerIds
+        && request.resource.data.winnerId != request.auth.uid;
+
+      // Rematch link, set once.
+      allow update: if isPlayer(resource.data)
+        && resource.data.status == 'finished'
+        && resource.data.rematchId == null
+        && changedKeys().hasOnly(['rematchId'])
+        && request.resource.data.rematchId is string;
+
+      // The host cancels a search.
+      allow delete: if signedIn()
+        && resource.data.hostId == request.auth.uid
+        && resource.data.status == 'waiting';
+    }
+
     // Anything not matched above is denied.
   }
 }

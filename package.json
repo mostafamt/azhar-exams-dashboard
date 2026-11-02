@@ -8,7 +8,7 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test:rules": "firebase emulators:exec --only firestore --project demo-azhar \"node --test tests/rules.test.js\"",
+    "test:rules": "firebase emulators:exec --only firestore --project demo-azhar \"node --test --test-concurrency=1 tests/rules.test.js tests/matches.test.js\"",
     "deploy:rules": "firebase deploy --only firestore:rules",
     "test:functions": "firebase emulators:exec --only auth,firestore,functions --project demo-azhar \"node --test tests/deleteNode.test.js\"",
     "emulators": "firebase emulators:start --project demo-azhar",
