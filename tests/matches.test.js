@@ -15,6 +15,7 @@ import {
   getDocs,
   increment,
   query,
+  runTransaction,
   serverTimestamp,
   setDoc,
   Timestamp,
@@ -313,5 +314,101 @@ describe('matches: forfeit and rematch', () => {
   test('no rematch link while playing', async () => {
     await seed()
     await assertFails(updateDoc(ref('a'), { rematchId: 'r1' }))
+  })
+})
+
+describe('matches: presence, reactions, abandoned matches', () => {
+  const heartbeat = (uid) => updateDoc(ref(uid), { [`players.${uid}.seenAt`]: serverTimestamp() })
+  const react = (uid, emoji) =>
+    updateDoc(ref(uid), { [`players.${uid}.reaction`]: { emoji, at: serverTimestamp() } })
+  const claim = (uid) => updateDoc(ref(uid), { status: 'finished', finishedAt: serverTimestamp(), winnerId: uid })
+
+  test('a player sends a heartbeat for themselves only', async () => {
+    await seed()
+    await assertSucceeds(heartbeat('a'))
+    await assertFails(updateDoc(ref('a'), { 'players.b.seenAt': serverTimestamp() }))
+    await assertFails(updateDoc(ref('a'), { 'players.a.seenAt': Timestamp.fromMillis(Date.now() + 60_000) }))
+    await assertFails(heartbeat('c'))
+  })
+
+  test('reactions are one of six emoji, at most one every 2 s', async () => {
+    await seed()
+    await assertSucceeds(react('a', 3))
+    await assertFails(react('a', 4))
+    await assertFails(react('b', 6))
+    await assertFails(updateDoc(ref('b'), { 'players.b.reaction': { emoji: 1, at: serverTimestamp(), x: 1 } }))
+  })
+
+  test('the winner can be claimed only after the opponent was silent for 45 s', async () => {
+    await seed({ startedSecondsAgo: 10 })
+    await assertFails(claim('a'))
+    await seed({ startedSecondsAgo: 60 })
+    await assertSucceeds(claim('a'))
+  })
+
+  test('a recent heartbeat blocks the claim', async () => {
+    await seed({ startedSecondsAgo: 60 })
+    await heartbeat('b')
+    await assertFails(claim('a'))
+  })
+})
+
+describe('ratings', () => {
+  const RATING = 'ratings/a'
+  const rating = (overrides = {}) => ({
+    name: 'أحمد',
+    rating: 1016,
+    xp: 60,
+    wins: 1,
+    losses: 0,
+    draws: 0,
+    lastMatchId: 'm',
+    updatedAt: serverTimestamp(),
+    ...overrides,
+  })
+
+  /** What the app does: mark the match rated and write the rating in one transaction. */
+  const settle = (uid, data, path = `ratings/${uid}`) => {
+    const firestore = db(uid)
+    const match = doc(firestore, MATCH)
+    return runTransaction(firestore, async (tx) => {
+      await tx.get(match)
+      tx.update(match, { [`players.${uid}.rated`]: true })
+      tx.set(doc(firestore, path), data)
+    })
+  }
+
+  test('a player settles a finished match once', async () => {
+    await seed({ status: 'finished' })
+    await assertSucceeds(settle('a', rating()))
+    // Counting the same match again.
+    await assertFails(settle('a', rating({ rating: 1030, wins: 2, xp: 120 })))
+  })
+
+  test('cannot settle a running match, someone else\'s rating, or a big jump', async () => {
+    await seed()
+    await assertFails(settle('a', rating()))
+    await seed({ status: 'finished' })
+    await assertFails(settle('a', rating(), 'ratings/b'))
+    await assertFails(settle('a', rating({ rating: 1100 })))
+    await assertFails(settle('a', rating({ xp: 500 })))
+    await assertFails(settle('a', rating({ wins: 2 })))
+  })
+
+  test('the rated flag alone can only be set on a finished match', async () => {
+    await seed()
+    await assertFails(updateDoc(ref('a'), { 'players.a.rated': true }))
+    await seed({ status: 'finished' })
+    await assertSucceeds(updateDoc(ref('a'), { 'players.a.rated': true }))
+    await assertFails(updateDoc(ref('a'), { 'players.b.rated': true }))
+  })
+
+  test('ratings are public to signed-in users, written only by their owner', async () => {
+    await env.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), RATING), { ...rating(), updatedAt: Timestamp.now() }),
+    )
+    await assertSucceeds(getDoc(doc(db('b'), RATING)))
+    await assertFails(getDoc(doc(db(null), RATING)))
+    await assertFails(setDoc(doc(db('b'), RATING), rating()))
   })
 })

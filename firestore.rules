@@ -97,7 +97,8 @@ service cloud.firestore {
     // Both players move through the questions together: `current` is the shared question and
     // `questionStartedAt` (server time) times it. Each player writes only their own `players.{uid}`.
     // Clients grade themselves, but the rules check every answer against the question's
-    // correctIndex, so `correct` and `score` can't be faked. Matches are unranked.
+    // correctIndex, so `correct` and `score` can't be faked. Ratings (`ratings/{uid}`) are settled by
+    // the clients too; the rules only bound each change and count every match once.
 
     function isPlayer(d) {
       return signedIn() && request.auth.uid in d.playerIds;
@@ -112,10 +113,27 @@ service cloud.firestore {
         .hasOnly([request.auth.uid]);
     }
 
+    // `rating` is the player's rating when the match started (ranked matches only).
     function validNewPlayer(p) {
-      return p.keys().hasOnly(['name', 'answers', 'score', 'left'])
+      return p.keys().hasOnly(['name', 'answers', 'score', 'left', 'rating'])
         && p.name is string && p.name.size() > 0 && p.name.size() <= 100
-        && p.answers == {} && p.score == 0 && p.left == false;
+        && p.answers == {} && p.score == 0 && p.left == false
+        && (!('rating' in p) || (p.rating is int && p.rating >= 0 && p.rating <= 5000));
+    }
+
+    // What changed inside my own `players.{uid}` entry.
+    function myPlayerChanges() {
+      return request.resource.data.players[request.auth.uid]
+        .diff(resource.data.players[request.auth.uid]).affectedKeys();
+    }
+
+    function opponentOf(d) {
+      return d.playerIds[0] == request.auth.uid ? d.playerIds[1] : d.playerIds[0];
+    }
+
+    // The last presence heartbeat of `uid`, or the start of the match if they never sent one.
+    function lastSeen(d, uid) {
+      return d.players[uid].get('seenAt', d.startedAt);
     }
 
     function hasAnswered(d, uid) {
@@ -151,8 +169,10 @@ service cloud.firestore {
       let d = request.resource.data;
       return d.keys().hasOnly(['mode', 'code', 'queueKey', 'subjectId', 'preset', 'secondsPerQuestion',
           'questions', 'status', 'current', 'questionStartedAt', 'hostId', 'playerIds', 'players',
-          'createdAt', 'startedAt', 'finishedAt', 'winnerId', 'rematchId'])
+          'createdAt', 'startedAt', 'finishedAt', 'winnerId', 'rematchId', 'subjectName', 'ranked'])
         && d.mode in ['random', 'code']
+        && d.get('ranked', false) is bool
+        && (d.get('subjectName', null) == null || d.subjectName is string)
         && (d.mode == 'code' ? d.code is string && d.code.size() == 6 : d.queueKey is string)
         && d.status == 'waiting'
         && d.current == 0
@@ -225,6 +245,45 @@ service cloud.firestore {
         && request.resource.data.winnerId in resource.data.playerIds
         && request.resource.data.winnerId != request.auth.uid;
 
+      // Presence heartbeat: I'm still here (docs/match-plan.md §9).
+      allow update: if isPlayer(resource.data)
+        && resource.data.status == 'playing'
+        && changedKeys().hasOnly(['players'])
+        && onlyMyPlayerChanged()
+        && myPlayerChanges().hasOnly(['seenAt'])
+        && request.resource.data.players[request.auth.uid].seenAt == request.time;
+
+      // A reaction («تفاعل»): one of six emoji, at most one every 2 s.
+      allow update: if isPlayer(resource.data)
+        && resource.data.status == 'playing'
+        && changedKeys().hasOnly(['players'])
+        && onlyMyPlayerChanged()
+        && myPlayerChanges().hasOnly(['reaction'])
+        && request.resource.data.players[request.auth.uid].reaction.keys().hasOnly(['emoji', 'at'])
+        && request.resource.data.players[request.auth.uid].reaction.emoji is int
+        && request.resource.data.players[request.auth.uid].reaction.emoji >= 0
+        && request.resource.data.players[request.auth.uid].reaction.emoji <= 5
+        && request.resource.data.players[request.auth.uid].reaction.at == request.time
+        && (!('reaction' in resource.data.players[request.auth.uid])
+          || request.time > resource.data.players[request.auth.uid].reaction.at + duration.value(2, 's'));
+
+      // The opponent vanished (no heartbeat for 45 s): end the match as my win.
+      allow update: if isPlayer(resource.data)
+        && resource.data.status == 'playing'
+        && changedKeys().hasOnly(['status', 'finishedAt', 'winnerId'])
+        && request.resource.data.status == 'finished'
+        && request.resource.data.finishedAt == request.time
+        && request.resource.data.winnerId == request.auth.uid
+        && request.time > lastSeen(resource.data, opponentOf(resource.data)) + duration.value(45, 's');
+
+      // My result was added to my rating (see ratings/{uid}).
+      allow update: if isPlayer(resource.data)
+        && resource.data.status == 'finished'
+        && changedKeys().hasOnly(['players'])
+        && onlyMyPlayerChanged()
+        && myPlayerChanges().hasOnly(['rated'])
+        && request.resource.data.players[request.auth.uid].rated == true;
+
       // Rematch link, set once.
       allow update: if isPlayer(resource.data)
         && resource.data.status == 'finished'
@@ -236,6 +295,58 @@ service cloud.firestore {
       allow delete: if signedIn()
         && resource.data.hostId == request.auth.uid
         && resource.data.status == 'waiting';
+    }
+
+    // ── Match ratings and XP (public, for «لوحة الصدارة») ────────────────────────────────────
+    // Written by the owner's app after each match, in the same transaction that marks
+    // `players.{uid}.rated` on that match, so each match counts once. The client computes the
+    // Elo change; the rules only bound it. Fine for an educational app.
+    function validRatingShape(r) {
+      return r.keys().hasOnly(['name', 'rating', 'xp', 'wins', 'losses', 'draws', 'lastMatchId', 'updatedAt'])
+        && r.name is string && r.name.size() > 0 && r.name.size() <= 100
+        && r.rating is int && r.rating >= 0 && r.rating <= 5000
+        && r.xp is int && r.wins is int && r.losses is int && r.draws is int
+        && r.lastMatchId is string
+        && r.updatedAt == request.time;
+    }
+
+    function matchDoc(id) {
+      return /databases/$(database)/documents/matches/$(id);
+    }
+
+    // `lastMatchId` is a finished match of mine that wasn't rated before this write and is after it.
+    function settlesNewMatch(uid, r) {
+      let before = get(matchDoc(r.lastMatchId)).data;
+      let after = getAfter(matchDoc(r.lastMatchId)).data;
+      return uid in before.playerIds
+        && before.status == 'finished'
+        && before.players[uid].get('rated', false) == false
+        && after.players[uid].get('rated', false) == true;
+    }
+
+    function games(r) {
+      return r.wins + r.losses + r.draws;
+    }
+
+    match /ratings/{uid} {
+      allow read: if signedIn();
+      allow create: if isOwner(uid)
+        && validRatingShape(request.resource.data)
+        && request.resource.data.rating >= 1000 - 40 && request.resource.data.rating <= 1000 + 40
+        && request.resource.data.xp >= 0 && request.resource.data.xp <= 100
+        && request.resource.data.wins >= 0 && request.resource.data.losses >= 0 && request.resource.data.draws >= 0
+        && games(request.resource.data) == 1
+        && settlesNewMatch(uid, request.resource.data);
+      allow update: if isOwner(uid)
+        && validRatingShape(request.resource.data)
+        && math.abs(request.resource.data.rating - resource.data.rating) <= 40
+        && request.resource.data.xp >= resource.data.xp && request.resource.data.xp <= resource.data.xp + 100
+        && request.resource.data.wins >= resource.data.wins
+        && request.resource.data.losses >= resource.data.losses
+        && request.resource.data.draws >= resource.data.draws
+        && games(request.resource.data) == games(resource.data) + 1
+        && settlesNewMatch(uid, request.resource.data);
+      allow delete: if false;
     }
 
     // Anything not matched above is denied.
