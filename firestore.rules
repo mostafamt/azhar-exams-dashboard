@@ -372,6 +372,36 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // ── Challenges (azhar-exams app: docs/leagues-plan.md §5) ─────────────────────────────────
+    // «تحدَّ» on «الأوائل»: an in-app invite to a room match I just opened. Only the two players see
+    // it; the receiver accepts or declines, the sender cancels. Expiry (2 min) is up to the apps.
+    function validChallenge(d) {
+      let room = get(matchDoc(d.matchId)).data;
+      return d.keys().hasOnly(['from', 'fromName', 'to', 'matchId', 'code', 'status', 'createdAt'])
+        && d.from == request.auth.uid
+        && d.to is string && d.to.size() > 0 && d.to != d.from
+        && d.fromName is string && d.fromName.size() > 0 && d.fromName.size() <= 100
+        && d.matchId is string && d.code is string
+        && d.status == 'pending'
+        && d.createdAt == request.time
+        // The room is mine, still waiting, and the code is its code.
+        && room.hostId == request.auth.uid
+        && room.status == 'waiting'
+        && room.code == d.code;
+    }
+
+    match /challenges/{challengeId} {
+      allow read: if signedIn()
+        && (resource.data.to == request.auth.uid || resource.data.from == request.auth.uid);
+      allow create: if signedIn() && validChallenge(request.resource.data);
+      allow update: if signedIn()
+        && resource.data.status == 'pending'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+        && ((request.auth.uid == resource.data.to && request.resource.data.status in ['accepted', 'declined'])
+          || (request.auth.uid == resource.data.from && request.resource.data.status == 'cancelled'));
+      allow delete: if false;
+    }
+
     // ── Profile photos (azhar-exams app: docs/profile-photo-plan.md) ─────────────────────────
     // The image lives on Cloudinary (unsigned preset `azhar-avatars`); this holds its URL. Public to
     // signed-in users so opponents and the leaderboard can show it. Only a .jpg inside the owner's
