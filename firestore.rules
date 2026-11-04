@@ -349,6 +349,26 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // ── Profile photos (azhar-exams app: docs/profile-photo-plan.md) ─────────────────────────
+    // The image lives on Cloudinary (unsigned preset `azhar-avatars`); this holds its URL. Public to
+    // signed-in users so opponents and the leaderboard can show it. Only a .jpg inside the owner's
+    // own azhar-avatars/{uid}/ folder of our cloud, so nobody can point at another site or user.
+    function validAvatar(uid) {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['url', 'publicId', 'updatedAt'])
+        && d.url is string && d.url.size() <= 300
+        && d.url.matches('^https://res[.]cloudinary[.]com/dapspj9n8/image/upload/(v[0-9]+/)?azhar-avatars/'
+          + uid + '/[A-Za-z0-9_-]+[.]jpg$')
+        && d.publicId is string && d.publicId.size() > 0 && d.publicId.size() <= 200
+        && d.updatedAt == request.time;
+    }
+
+    match /avatars/{uid} {
+      allow read: if signedIn();
+      allow create, update: if isOwner(uid) && validAvatar(uid);
+      allow delete: if isOwner(uid) || isAdmin();
+    }
+
     // Anything not matched above is denied.
   }
 }
