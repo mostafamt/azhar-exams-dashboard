@@ -297,12 +297,13 @@ service cloud.firestore {
         && resource.data.status == 'waiting';
     }
 
-    // ── Match ratings and XP (public, for «لوحة الصدارة») ────────────────────────────────────
+    // ── Match ratings, XP and weekly XP (public, for «الأوائل») ────────────────────────────────────
     // Written by the owner's app after each match, in the same transaction that marks
     // `players.{uid}.rated` on that match, so each match counts once. The client computes the
     // Elo change; the rules only bound it. Fine for an educational app.
     function validRatingShape(r) {
-      return r.keys().hasOnly(['name', 'rating', 'xp', 'wins', 'losses', 'draws', 'lastMatchId', 'updatedAt'])
+      return r.keys().hasOnly(
+          ['name', 'rating', 'xp', 'wins', 'losses', 'draws', 'lastMatchId', 'updatedAt', 'weekId', 'weekXp'])
         && r.name is string && r.name.size() > 0 && r.name.size() <= 100
         && r.rating is int && r.rating >= 0 && r.rating <= 5000
         && r.xp is int && r.wins is int && r.losses is int && r.draws is int
@@ -328,6 +329,26 @@ service cloud.firestore {
       return r.wins + r.losses + r.draws;
     }
 
+    // Weekly leagues (azhar-exams app: docs/leagues-plan.md). Weeks start Saturday 00:00 UTC+2
+    // (165600000 ms = Sat 3 Jan 1970 00:00 UTC+2); must match src/utils/week.ts in the app.
+    function currentWeek() {
+      return math.floor((request.time.toMillis() - 165600000) / 604800000);
+    }
+
+    // weekXp grows by exactly what xp grows by, restarting when the week changes, so it's bounded
+    // like xp. Last week is accepted too, for a phone whose clock is a little behind at the turn.
+    // Optional, so apps from before leagues (which don't send the fields) can still settle.
+    function validWeek(r) {
+      let oldWeek = resource == null ? -1 : resource.data.get('weekId', -1);
+      let oldWeekXp = resource == null ? 0 : resource.data.get('weekXp', 0);
+      let gained = r.xp - (resource == null ? 0 : resource.data.xp);
+      return (!('weekId' in r) && !('weekXp' in r))
+        || (r.weekId is int && r.weekXp is int
+          && (r.weekId == currentWeek() || r.weekId == currentWeek() - 1)
+          && r.weekId >= oldWeek
+          && r.weekXp == (r.weekId == oldWeek ? oldWeekXp : 0) + gained);
+    }
+
     match /ratings/{uid} {
       allow read: if signedIn();
       allow create: if isOwner(uid)
@@ -336,6 +357,7 @@ service cloud.firestore {
         && request.resource.data.xp >= 0 && request.resource.data.xp <= 100
         && request.resource.data.wins >= 0 && request.resource.data.losses >= 0 && request.resource.data.draws >= 0
         && games(request.resource.data) == 1
+        && validWeek(request.resource.data)
         && settlesNewMatch(uid, request.resource.data);
       allow update: if isOwner(uid)
         && validRatingShape(request.resource.data)
@@ -345,6 +367,7 @@ service cloud.firestore {
         && request.resource.data.losses >= resource.data.losses
         && request.resource.data.draws >= resource.data.draws
         && games(request.resource.data) == games(resource.data) + 1
+        && validWeek(request.resource.data)
         && settlesNewMatch(uid, request.resource.data);
       allow delete: if false;
     }

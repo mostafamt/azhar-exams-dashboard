@@ -12,6 +12,7 @@ import {
   deleteDoc,
   doc,
   getDoc,
+  getCountFromServer,
   getDocs,
   increment,
   query,
@@ -410,5 +411,72 @@ describe('ratings', () => {
     await assertSucceeds(getDoc(doc(db('b'), RATING)))
     await assertFails(getDoc(doc(db(null), RATING)))
     await assertFails(setDoc(doc(db('b'), RATING), rating()))
+  })
+
+  // Weekly leagues (azhar-exams app: docs/leagues-plan.md); same formula as src/utils/week.ts.
+  const WEEK = Math.floor((Date.now() - 165_600_000) / 604_800_000)
+
+  /** `a` already has one settled match (60 XP), optionally with weekly fields. */
+  const seedRating = (week = {}) =>
+    env.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), RATING), { ...rating({ lastMatchId: 'earlier', ...week }), updatedAt: Timestamp.now() }),
+    )
+  /** The second match: +60 XP, one more win. */
+  const second = (week) => rating({ xp: 120, wins: 2, ...week })
+
+  test('the first match starts this week at its XP', async () => {
+    await seed({ status: 'finished' })
+    await assertFails(settle('a', rating({ weekId: WEEK, weekXp: 30 })))
+    await assertFails(settle('a', rating({ weekId: WEEK + 1, weekXp: 60 })))
+    await assertFails(settle('a', rating({ weekId: WEEK - 2, weekXp: 60 })))
+    await assertFails(settle('a', rating({ weekId: WEEK })))
+    await assertSucceeds(settle('a', rating({ weekId: WEEK, weekXp: 60 })))
+  })
+
+  test('a clock a little behind may still file the match under last week', async () => {
+    await seed({ status: 'finished' })
+    await assertSucceeds(settle('a', rating({ weekId: WEEK - 1, weekXp: 60 })))
+  })
+
+  test('in the same week, weekly XP grows by exactly the XP gained', async () => {
+    await seed({ status: 'finished' })
+    await seedRating({ weekId: WEEK, weekXp: 60 })
+    await assertFails(settle('a', second({ weekId: WEEK, weekXp: 200 })))
+    await assertFails(settle('a', second({ weekId: WEEK, weekXp: 60 })))
+    await assertSucceeds(settle('a', second({ weekId: WEEK, weekXp: 120 })))
+  })
+
+  test('a new week starts again from this match', async () => {
+    await seed({ status: 'finished' })
+    await seedRating({ weekId: WEEK - 1, weekXp: 500 })
+    await assertFails(settle('a', second({ weekId: WEEK, weekXp: 560 })))
+    await assertFails(settle('a', second({ weekId: WEEK - 2, weekXp: 60 })))
+    await assertSucceeds(settle('a', second({ weekId: WEEK, weekXp: 60 })))
+  })
+
+  test('the week never goes backwards', async () => {
+    await seed({ status: 'finished' })
+    await seedRating({ weekId: WEEK, weekXp: 60 })
+    await assertFails(settle('a', second({ weekId: WEEK - 1, weekXp: 60 })))
+  })
+
+  test('a rating from before leagues joins this week on its next match', async () => {
+    await seed({ status: 'finished' })
+    await seedRating()
+    await assertSucceeds(settle('a', second({ weekId: WEEK, weekXp: 60 })))
+  })
+
+  test('apps from before leagues can still settle without the weekly fields', async () => {
+    await seed({ status: 'finished' })
+    await seedRating({ weekId: WEEK, weekXp: 60 })
+    await assertSucceeds(settle('a', second()))
+  })
+
+  test('signed-in users can list and count this week\'s leaderboard', async () => {
+    await seedRating({ weekId: WEEK, weekXp: 60 })
+    const weekly = (uid) => query(collection(db(uid), 'ratings'), where('weekId', '==', WEEK))
+    await assertSucceeds(getDocs(weekly('b')))
+    await assertSucceeds(getCountFromServer(query(weekly('b'), where('weekXp', '>', 10))))
+    await assertFails(getDocs(weekly(null)))
   })
 })
